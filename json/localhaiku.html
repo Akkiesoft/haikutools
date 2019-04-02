@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf=8">
+  <style>
+    body {font-family:"arial", "helvetica", sans-serif;}
+    .entry {padding:10px;border-bottom:1px solid #eee;}
+    .entry:after {clear:both;}
+    .icon {float:left;width:34px;height:34px;border:1px solid #ccc;}
+    .icon img {width: 32px;height:32px;border:1px solid #fff;}
+    .entry-box {margin-left:45px;}
+    .info {font-size:70%;color:rgb(153, 153, 153);}
+    .info .user {font-weight:bold;}
+    .info a,.source {color:#b36b85;}
+    .keyword-text {font-size:90%;font-weight:bold;text-decoration:underline;color:#467237;}
+    .body {line-height:1.4;font-size:90%;color:#333;margin-bottom:0.3em;}
+    .body a {color:#333;text-decoration:underline;}
+    .body img {max-width:400px;max-height:400px;}
+  </style>
+</head>
+<body>
+  <h1>local haiku</h1>
+  <p>JSONを選択してください</p>
+  <input type="file" id="files" name="files[]" />
+  <div id="haiku"></div>
+</body>
+<script type="text/javascript" src="https://s.hatena.ne.jp/js/HatenaStar.js"></script>
+<script>
+  function datestr(s) {
+    return ('0' + s).slice(-2);
+  }
+
+  function fotolifeSintax(b, f) {
+    var replace = "";
+    for (var i = 0; i < f.length; i++) {
+      var ff = f[i].match(/f:id:([-_a-zA-Z0-9]+):([0-9]{8})([0-9]{6})(j|g|p|f)?(:image|:movie)?/i);
+      var alt     = f[i];
+      var id      = ff[1];
+      var initial = ff[1][0];
+      var date    = ff[2];
+      var time    = ff[3];
+      var type    = (typeof ff[4] !== 'undefined' && ff[4]) ? ff[4] : '';
+      var mode    = (typeof ff[5] !== 'undefined' && ff[5]) ? ff[5] : '';
+      var ext     = 'jpg';
+	  if (type == 'g') { ext = 'gif'; }
+	  else if (type == 'p') { ext = 'png'; }
+      var link = 'http://f.hatena.ne.jp/'+id+'/'+date+time;
+      var img  = 'https://cdn-ak.f.st-hatena.com/images/fotolife/'+initial+'/'+id+'/'+date+'/'+date+time+'.'+ext;
+      b = b.replace(f[i], '<a href="'+link+'"><img src="'+img+'"></a>');
+    }
+    return b;
+  }
+
+  function urlSintax(b, u) {
+    var replace = "";
+    for (var i = 0; i < u.length; i++) {
+      if (u[i].match(/.(jpg|jpeg|gif|png|JPG|JPEG|GIF|PNG)\??([0-9]+)?$/)) {
+        // URL picture
+        replace = '<a href="'+u[i]+'"><img src="'+u[i]+'"></a>';
+      } else {
+        // just link
+        replace = '<a href="'+u[i]+'">'+u[i]+'</a>';
+      }
+      b = b.replace(u[i], replace);
+    }
+    return b;
+  }
+
+  function parse_haiku(entry) {
+    var d = new Date(entry['created_at']);
+    d.setTime(d.getTime() + 1000 * 60 * 60 * 9);
+    var created_at = d.getFullYear() + '/' + datestr(d.getMonth()+1) + '/' + datestr(d.getDate()) + ' ' + datestr(d.getHours()) + ':' + datestr(d.getMinutes()) + ':' + datestr(d.getSeconds());
+
+    var body = entry['haiku_text'].split("\n");
+    var out = "";
+    /* ここにkoHaikuのパーサーを移植すればかなりいい感じになるかと */
+    /* 各行を読んで記法っぽいのがいたら変換してやる */
+    for (var i = 0; i < body.length; i++) {
+      // URL
+      var match_url = body[i].match(/\[?(https?|ftp)(:\/\/[-_.!~*\'()a-zA-Z0-9;\/?:\@&=+\$,%#]+)/g);
+      if (match_url) {
+        body[i] = urlSintax(body[i], match_url);
+      }
+      // fotolife sintax
+      var fotolife = body[i].match(/f:id:([-_a-zA-Z0-9]+):([0-9]{8})([0-9]{6})(j|g|p|f)?(:image|:movie)?/ig);
+      if (fotolife) {
+        body[i] = fotolifeSintax(body[i], fotolife);
+      }
+      out += body[i] + "<br>";
+    }
+
+    var entry = '<div class="entry"><div class="icon"><img src="' + entry['user']['profile_image_url'] + '" alt=' + entry['user']['name'] + '></div>' +
+      '<div class="entry-box">' +
+      '<div class="keyword"><span class="keyword-text">' + entry['keyword'] + '</span> <span class="star"><a class="url" href="' + entry['link'] + '"></a></span></div>' +
+      '<div class="body">' + out + '</div>' + 
+      '<div class="info">by <a href="' + entry['user']['url'] + '" class="user">' + entry['user']['name'] + '</a>' +
+      '&nbsp;&nbsp;<a href="' + entry['link'] + '">' + created_at + '</a>' +
+      '&nbsp;&nbsp;from <span class="source">' + entry['source'] + '</span></div></div></div>';
+    return entry;
+  }
+
+  function gen_haiku(json_txt) {
+    var ret = "";
+    var json = JSON.parse(json_txt);
+    for (var i = 0; i < json.length; i++) {
+      ret += parse_haiku(json[i]);
+    }
+    return ret;
+  }
+
+  /* https://www.html5rocks.com/ja/tutorials/file/dndfiles/ */
+  function handleFileSelect(evt) {
+    var files = evt.target.files; // FileList object
+
+    // Loop through the FileList and render image files as thumbnails.
+    for (var i = 0, f; f = files[i]; i++) {
+      // Only process json files.
+      if (f.type != 'application/json') {
+        continue;
+      }
+
+      var reader = new FileReader();
+
+      // Closure to capture the file information.
+      reader.onload = (function(theFile) {
+        return function(e) {
+          var entries = document.createElement('div');
+          entries.innerHTML = gen_haiku(e.target.result);
+          document.getElementById('haiku').insertBefore(entries, null);
+          /* http://unageanu.hatenablog.com/entry/20080323/1206270428 */
+          /* http://d.hatena.ne.jp/hatenastar/20071011/1192072227 */
+          Hatena.Star.EntryLoader.loadNewEntries(entries);
+        };
+      })(f);
+
+      // Read in the image file as a data URL.
+      reader.readAsText(f);
+    }
+  }
+
+  document.getElementById('files').addEventListener('change', handleFileSelect, false);
+
+  Hatena.Star.SiteConfig = {
+    entryNodes: {
+      'div.entry': {
+        uri: 'a.url',
+        title: 'a.url',
+        container: 'div.keyword:after'
+      }
+    }
+  };
+</script>
+</html>

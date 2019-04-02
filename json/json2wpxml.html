@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf=8">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.5/jszip.min.js"></script>
+</head>
+<body>
+  <h1>JSONをWordPress XMLにする</h1>
+  <p>JSONを選択してください（複数選択可能にしてあるので、全部のJSONを選択すべし）</p>
+  <input type="file" id="files" name="files[]" multiple />
+  <div id="haiku"></div>
+</body>
+<script>
+
+  function datestr(s) {
+    return ('0' + s).slice(-2);
+  }
+
+  function get_pubDate(date) {
+    var wmonth = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    var wdom = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    var time = `${datestr(date.getHours())}:${datestr(date.getMinutes())}:${datestr(date.getSeconds())}`;
+    return `${wdom[date.getDay()]}, ${datestr(date.getDate())} ${wmonth[date.getMonth()]} ${date.getFullYear()} ${time} +0000`;
+  }
+
+  function gen_wphead(text) {
+    var user = JSON.parse(text)[0]["user"];
+    var now_utc = new Date();
+    now_utc.setTime(now_utc.getTime() - 1000 * 60 * 60 * 9);
+    var pubdate = get_pubDate(now_utc);
+    return `<?xml version="1.0" encoding="UTF-8" ?>
+<rss version="2.0"
+	xmlns:excerpt="http://wordpress.org/export/1.2/excerpt/"
+	xmlns:content="http://purl.org/rss/1.0/modules/content/"
+	xmlns:wfw="http://wellformedweb.org/CommentAPI/"
+	xmlns:dc="http://purl.org/dc/elements/1.1/"
+	xmlns:wp="http://wordpress.org/export/1.2/"
+>
+<channel>
+	<title>${user["screen_name"]}'s Haiku</title>
+	<link>${user["url"]}</link>
+	<description></description>
+	<pubDate>${pubdate}</pubDate>
+	<language>ja</language>
+	<wp:wxr_version>1.2</wp:wxr_version>
+	<wp:base_site_url>${user["url"]}</wp:base_site_url>
+	<wp:base_blog_url>${user["url"]}</wp:base_blog_url>
+
+	<wp:author><wp:author_id>1</wp:author_id><wp:author_login><![CDATA[${user["screen_name"]}]]></wp:author_login><wp:author_email><![CDATA[]]></wp:author_email><wp:author_display_name><![CDATA[${user["screen_name"]}]]></wp:author_display_name><wp:author_first_name><![CDATA[]]></wp:author_first_name><wp:author_last_name><![CDATA[]]></wp:author_last_name></wp:author>
+
+`;
+  }
+
+
+  function gen_wpitem(item) {
+    var id = item["id"];
+    var link = item["link"];
+    var creator_name = item["user"]["screen_name"];
+    var title = item["keyword"];
+    var title_nicename = encodeURIComponent(item["keyword"]);
+
+    var d_utc = new Date(item["created_at"]);
+    var d_jst = new Date(item["created_at"]);
+    d_utc.setTime(d_utc.getTime() - 1000 * 60 * 60 * 9);
+    var time_utc = datestr(d_utc.getHours()) + ':' + datestr(d_utc.getMinutes()) + ':' + datestr(d_utc.getSeconds());
+    var created_at_utc = d_utc.getFullYear() + '-' + datestr(d_utc.getMonth()+1) + '-' + datestr(d_utc.getDate()) + ' ' + time_utc;
+    var created_at_jst = d_jst.getFullYear() + '-' + datestr(d_jst.getMonth()+1) + '-' + datestr(d_jst.getDate()) + ' ' +
+      datestr(d_jst.getHours()) + ':' + datestr(d_jst.getMinutes()) + ':' + datestr(d_jst.getSeconds());
+    var pubdate = get_pubDate(d_utc);
+
+    var body = item["haiku_text"];
+
+    var item_ret = `
+	<item>
+		<title>${title}</title>
+		<link>${link}</link>
+		<pubDate>${pubdate}</pubDate>
+		<dc:creator><![CDATA[${creator_name}]]></dc:creator>
+		<guid isPermaLink="false">${link}</guid>
+		<description></description>
+		<content:encoded><![CDATA[${body}
+
+<div class="haiku">
+<a href="${link}">(Original permalink: ${link})</a><br>
+<span class="haikustar"></span>
+</div>]]></content:encoded>
+		<excerpt:encoded><![CDATA[]]></excerpt:encoded>
+		<wp:post_id>${id}</wp:post_id>
+		<wp:post_date><![CDATA[${created_at_jst}]]></wp:post_date>
+		<wp:post_date_gmt><![CDATA[${created_at_utc}]]></wp:post_date_gmt>
+		<wp:comment_status><![CDATA[closed]]></wp:comment_status>
+		<wp:ping_status><![CDATA[closed]]></wp:ping_status>
+		<wp:post_name><![CDATA[${id}]]></wp:post_name>
+		<wp:status><![CDATA[publish]]></wp:status>
+		<wp:post_parent>0</wp:post_parent>
+		<wp:menu_order>0</wp:menu_order>
+		<wp:post_type><![CDATA[post]]></wp:post_type>
+		<wp:post_password><![CDATA[]]></wp:post_password>
+		<wp:is_sticky>0</wp:is_sticky>
+		<category domain="category" nicename="${title_nicename}"><![CDATA[${title}]]></category>
+		<wp:postmeta>
+			<wp:meta_key><![CDATA[_edit_last]]></wp:meta_key>
+			<wp:meta_value><![CDATA[1]]></wp:meta_value>
+		</wp:postmeta>
+	</item>
+`;
+    return item_ret;
+  }
+
+  function gen_wpitems(text) {
+    var items = JSON.parse(text);
+    var ret = "";
+    for (var i = 0; i < items.length; i++) {
+      ret += gen_wpitem(items[i]);
+    }
+    //console.log(ret);
+    return ret;
+  }
+
+  function make_zip(zip) {
+    zip.generateAsync({type:"blob"})
+    .then(function (blob) {
+      if (window.navigator.msSaveBlob) {
+        window.navigator.msSaveBlob(blob, USER + '.zip');
+        window.navigator.msSaveOrOpenBlob(blob, USER + '.zip');
+      } else {
+        var lnk = document.createElement('a');
+        lnk.textContent = 'ダウンロード';
+        lnk.id = "haiku";
+        lnk.href = window.URL.createObjectURL(blob);
+        document.getElementById('haiku').appendChild(lnk);
+      }
+    });
+  }
+
+  var out_head, out;
+  /* https://www.html5rocks.com/ja/tutorials/file/dndfiles/ */
+  function handleFileSelect(evt) {
+    out_head = "";
+    out = "";
+    var c = 0;
+    var files = evt.target.files; // FileList object
+    // Loop through the FileList and render image files as thumbnails.
+    for (var i = 0, f; f = files[i]; i++) {
+      // Only process json files.
+      if (f.type != 'application/json') {
+        continue;
+      }
+
+      var reader = new FileReader();
+      reader.onload = (function(theFile) {
+        return function(e) {
+          if (c == 0) { out_head = gen_wphead(e.target.result); }
+          out += gen_wpitems(e.target.result);
+          c++;
+          if (c == files.length) {
+            var zip = new JSZip();
+            zip.file('haiku-wp.xml', out_head + out + "</channel>\n</rss>\n");
+            make_zip(zip);
+          }
+        };
+      })(f);
+      // Read in the json file as a text.
+      reader.readAsText(f);
+    }
+  }
+
+  document.getElementById('files').addEventListener('change', handleFileSelect, false);
+
+</script>
+</html>

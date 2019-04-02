@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf=8">
+</head>
+<body>
+  <h1>はてなハイクのエクスポートCSVに人が読める投稿日時を足すやつ</h1>
+  <p>CSVファイルを選択します</p>
+  <input type="file" id="files" name="files[]" />
+  <div id="haiku"></div>
+</body>
+<script>
+  function datestr(s) {
+    return ('0' + s).slice(-2);
+  }
+
+  function gen_newcsv(t) {
+    tl = t.split("\n");
+    var ret = "Date,Date(UTC)," + tl[0] + "\n";
+    var l;
+    for (var i = 1; i < tl.length; i++) {
+      l = tl[i].split(",");
+      /* CSVの列数が違ったり、unixtimeがハイクのサービス期間の数字じゃなかったら無視 */
+      if (l.length != 5 || (l[0] < 1197471600 && 1553675400 < l[0])) {
+        // 1197471600 == 2007/12/13 00:00:00
+        // 1553675400 == 2019/03/27 17:30:00
+        ret += tl[i] + "\n";
+        continue;
+      }
+      /* forとか使えそうだけど面倒だからいいや */
+      var d_utc = new Date(l[0]*1000);
+      var d_jst = new Date(l[0]*1000);
+      d_jst.setTime(d_jst.getTime() + 1000 * 60 * 60 * 9);
+      var created_at_utc = d_utc.getFullYear() + '/' + datestr(d_utc.getMonth()+1) + '/' + datestr(d_utc.getDate()) + ' ' +
+        datestr(d_utc.getHours()) + ':' + datestr(d_utc.getMinutes()) + ':' + datestr(d_utc.getSeconds());
+      var created_at_jst = d_jst.getFullYear() + '/' + datestr(d_jst.getMonth()+1) + '/' + datestr(d_jst.getDate()) + ' ' +
+        datestr(d_jst.getHours()) + ':' + datestr(d_jst.getMinutes()) + ':' + datestr(d_jst.getSeconds());
+      ret += '"'  + created_at_jst + '","' + created_at_utc + '",' + tl[i] + "\n";
+    }
+    return ret;
+  }
+
+  /* https://www.html5rocks.com/ja/tutorials/file/dndfiles/ */
+  function handleFileSelect(evt) {
+    var files = evt.target.files; // FileList object
+
+    // Loop through the FileList and render image files as thumbnails.
+    for (var i = 0, f; f = files[i]; i++) {
+      // Only process csv files.
+      if (f.type != 'text/csv') {
+        continue;
+      }
+
+      var reader = new FileReader();
+
+      // Closure to capture the file information.
+      reader.onload = (function(theFile) {
+        return function(e) {
+          var newcsv = gen_newcsv(e.target.result);
+          var blob = new Blob([ newcsv ], { "type" : "text/csv" });
+          if (window.navigator.msSaveBlob) {
+            window.navigator.msSaveBlob(blob, USER + '-date-added.csv');
+            window.navigator.msSaveOrOpenBlob(blob, USER + '-date-added.csv');
+          } else {
+            var lnk = document.createElement('a');
+            lnk.textContent = 'ここをクリックして保存します';
+            lnk.id = "haikudl";
+            lnk.href = window.URL.createObjectURL(blob);
+            document.getElementById('haiku').appendChild(lnk);
+          }
+        };
+      })(f);
+
+      // Read in the image file as a data URL.
+      reader.readAsText(f);
+    }
+  }
+
+  document.getElementById('files').addEventListener('change', handleFileSelect, false);
+
+</script>
+</html>

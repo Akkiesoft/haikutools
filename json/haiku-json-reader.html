@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf=8">
+  <style>
+    body {font-family:"arial", "helvetica", sans-serif;}
+    .entry {padding:10px;border-bottom:1px solid #eee;}
+    .entry:after {clear:both;}
+    .icon {float:left;width:34px;height:34px;border:1px solid #ccc;}
+    .icon img {width: 32px;height:32px;border:1px solid #fff;}
+    .entry-box {margin-left:45px;}
+    .info {font-size:70%;color:rgb(153, 153, 153);}
+    .info .user {font-weight:bold;}
+    .info a,.source {color:#b36b85;}
+    .keyword-text {font-size:90%;font-weight:bold;text-decoration:underline;color:#467237;}
+    .body {line-height:1.4;font-size:90%;color:#333;margin-bottom:0.3em;}
+    .body a {color:#333;text-decoration:underline;}
+    .body img {max-width:400px;max-height:400px;}
+  </style>
+</head>
+<body>
+  <h1>Haiku JSON Viewer</h1>
+  <div id="haiku"></div>
+</body>
+<script type="text/javascript" src="https://s.hatena.ne.jp/js/HatenaStar.js"></script>
+<script>
+  var jsons = [
+/*
+EXAMPLE:
+    '1553617162.json',
+    '1391601068.json',
+    '1332262057.json',
+    '1325000074.json',
+    '1324868724.json'
+*/
+  ];
+  var per_page = 50;
+
+  var now_page = 0;
+  var json_all = new Array();
+
+  Hatena.Star.SiteConfig = {
+    entryNodes: {
+      'div.entry': {
+        uri: 'a.url',
+        title: 'a.url',
+        container: 'div.keyword:after'
+      }
+    }
+  };
+
+  function datestr(s) {
+    return ('0' + s).slice(-2);
+  }
+
+  function fotolifeSintax(b, f) {
+    var replace = "";
+    for (var i = 0; i < f.length; i++) {
+      var ff = f[i].match(/f:id:([-_a-zA-Z0-9]+):([0-9]{8})([0-9]{6})(j|g|p|f)?(:image|:movie)?/i);
+      var alt     = f[i];
+      var id      = ff[1];
+      var initial = ff[1][0];
+      var date    = ff[2];
+      var time    = ff[3];
+      var type    = (typeof ff[4] !== 'undefined' && ff[4]) ? ff[4] : '';
+      var mode    = (typeof ff[5] !== 'undefined' && ff[5]) ? ff[5] : '';
+      var ext     = 'jpg';
+	  if (type == 'g') { ext = 'gif'; }
+	  else if (type == 'p') { ext = 'png'; }
+      var link = 'http://f.hatena.ne.jp/'+id+'/'+date+time;
+      var img  = 'https://cdn-ak.f.st-hatena.com/images/fotolife/'+initial+'/'+id+'/'+date+'/'+date+time+'.'+ext;
+      b = b.replace(f[i], '<a href="'+link+'"><img src="'+img+'"></a>');
+    }
+    return b;
+  }
+
+  function urlSintax(b, u) {
+    var replace = "";
+    for (var i = 0; i < u.length; i++) {
+      if (u[i].match(/.(jpg|jpeg|gif|png|JPG|JPEG|GIF|PNG)\??([0-9]+)?$/)) {
+        // URL picture
+        replace = '<a href="'+u[i]+'"><img src="'+u[i]+'"></a>';
+      } else {
+        // just link
+        replace = '<a href="'+u[i]+'">'+u[i]+'</a>';
+      }
+      b = b.replace(u[i], replace);
+    }
+    return b;
+  }
+
+  function parse_haiku(entry) {
+    var d = new Date(entry['created_at']);
+    d.setTime(d.getTime() + 1000 * 60 * 60 * 9);
+    var created_at = d.getFullYear() + '/' + datestr(d.getMonth()+1) + '/' + datestr(d.getDate()) + ' ' + datestr(d.getHours()) + ':' + datestr(d.getMinutes()) + ':' + datestr(d.getSeconds());
+
+    var body = entry['haiku_text'].split("\n");
+    var out = "";
+    /* ここにkoHaikuのパーサーを移植すればかなりいい感じになるかと */
+    /* 各行を読んで記法っぽいのがいたら変換してやる */
+    for (var i = 0; i < body.length; i++) {
+      // URL
+      var match_url = body[i].match(/\[?(https?|ftp)(:\/\/[-_.!~*\'()a-zA-Z0-9;\/?:\@&=+\$,%#]+)/g);
+      if (match_url) {
+        body[i] = urlSintax(body[i], match_url);
+      }
+      // fotolife sintax
+      var fotolife = body[i].match(/f:id:([-_a-zA-Z0-9]+):([0-9]{8})([0-9]{6})(j|g|p|f)?(:image|:movie)?/ig);
+      if (fotolife) {
+        body[i] = fotolifeSintax(body[i], fotolife);
+      }
+      out += body[i] + "<br>";
+    }
+    var icon = entry['user']['profile_image_url'].replace(/^http:/,'https:');
+
+    var entry = '<div class="entry"><div class="icon"><img src="' + icon + '" alt=' + entry['user']['name'] + '></div>' +
+      '<div class="entry-box">' +
+      '<div class="keyword"><span class="keyword-text">' + entry['keyword'] + '</span> <span class="star"><a class="url" href="' + entry['link'] + '"></a></span></div>' +
+      '<div class="body">' + out + '</div>' + 
+      '<div class="info">by <a href="' + entry['user']['url'] + '" class="user">' + entry['user']['name'] + '</a>' +
+      '&nbsp;&nbsp;<a href="' + entry['link'] + '">' + created_at + '</a>' +
+      '&nbsp;&nbsp;from <span class="source">' + entry['source'] + '</span></div></div></div>';
+    return entry;
+  }
+
+  async function load_jsons() {
+    var ret = new Array();
+    for (var i = 0; i < jsons.length; i++) {
+      await fetch('./'+jsons[i]).then(function(r){
+        return r.json();
+      }).then(function(j){
+        ret = ret.concat(j);
+      });
+    }
+    return ret;
+  }
+
+  function load_page(p) {
+    var haiku = document.getElementById('haiku');
+    if (now_page != p) {
+      now_page = p;
+      haiku.innerHTML = "";
+      scrollTo(0, 0);
+    }
+    var data = "";
+    for (var i = 0; i < per_page; i++) {
+      var j = p * per_page + i;
+      if (json_all.length <= j) {
+        break;
+      }
+      data += parse_haiku(json_all[j]);
+    }
+    if (0 < now_page) {
+      data += '<p onClick="load_page('+(now_page-1)+');return false;">前のページ</p>';
+    }
+    if (now_page < json_all.length / per_page) {
+      data += '<p onClick="load_page('+(now_page+1)+');return false;">次のページ</p>';
+    }
+    var entries = document.createElement('div');
+    entries.innerHTML = data;
+    haiku.insertBefore(entries, null);
+    Hatena.Star.EntryLoader.loadNewEntries(entries);
+  }
+
+  window.onload = async function() {
+    json_all = await load_jsons();
+    load_page(now_page);
+  };
+</script>
+</html>
